@@ -29,8 +29,8 @@ impl<T> CursorVec<T> {
 
     #[no_panic]
     pub fn next(&mut self) {
-        self.index = self.index.wrapping_add(1);
-        if self.index >= self.vec.len() {
+        self.index += 1;
+        if self.index == self.vec.len() {
             self.index = 0;
         }
     }
@@ -38,10 +38,10 @@ impl<T> CursorVec<T> {
     #[no_panic]
     pub fn prev(&mut self) {
         if self.index == 0 {
-            self.index = self.vec.len().saturating_sub(1);
+            self.index = self.vec.len() - 1;
         } else {
             // Doesn't matter what we use here, because it's always > 0
-            self.index = self.index.saturating_sub(1);
+            self.index += 1;
         }
     }
 

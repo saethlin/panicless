@@ -15,7 +15,7 @@ impl<'a> Iterator for StrVecIter<'a> {
     #[no_panic]
     fn next(&mut self) -> Option<Self::Item> {
         let out = self.strvec.get(self.index);
-        self.index = self.index.wrapping_add(1);
+        self.index += 1;
         out
     }
 }
@@ -43,10 +43,10 @@ impl StrVec {
         let begin = *self.indices.get(index)?;
         let end = *self.indices.get(index + 1)?;
         let bytes = self.data.get(begin..end)?;
-        Some(unsafe { std::str::from_utf8_unchecked(bytes) })
+        Some(unsafe { core::str::from_utf8_unchecked(bytes) })
     }
 
-    // TODO: Pending an extend_from_slice implementation
+    #[no_panic]
     pub fn push(&mut self, item: &str) {
         if item.len() > 0 {
             self.indices.push(self.data.len() + item.len());
@@ -64,9 +64,7 @@ impl StrVec {
 
     #[no_panic]
     pub fn len(&self) -> usize {
-        // std::ops::Sub has a debug assertion
-        // We could turn those off in test, but I'm a bit suspicious of that
-        self.indices.len().wrapping_sub(1)
+        self.indices.len() - 1
     }
 }
 

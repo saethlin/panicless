@@ -8,3 +8,4 @@ no-panic = "0.1"
 
 [profile.test]
 opt-level = 3
+overflow-checks = false
