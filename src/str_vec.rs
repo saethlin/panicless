@@ -12,7 +12,6 @@ pub struct StrVecIter<'a> {
 
 impl<'a> Iterator for StrVecIter<'a> {
     type Item = &'a str;
-    #[no_panic]
     fn next(&mut self) -> Option<Self::Item> {
         let out = if self.index < self.len() {
             Some(self.strvec.get(Key(self.index)))
@@ -25,7 +24,6 @@ impl<'a> Iterator for StrVecIter<'a> {
 }
 
 impl<'a> ExactSizeIterator for StrVecIter<'a> {
-    #[no_panic]
     fn len(&self) -> usize {
         self.strvec.len()
     }
@@ -34,14 +32,7 @@ impl<'a> ExactSizeIterator for StrVecIter<'a> {
 #[derive(Clone, Copy)]
 pub struct Key(usize);
 
-impl From<Key> for usize {
-    fn from(k: Key) -> usize {
-        k.0
-    }
-}
-
 impl StrVec {
-    #[no_panic]
     pub fn new() -> Self {
         let mut indices = Vec::with_capacity(8);
         indices.push(0);
@@ -51,7 +42,6 @@ impl StrVec {
         }
     }
 
-    #[no_panic]
     pub fn get(&self, key: Key) -> &str {
         let index = key.0;
         unsafe {
@@ -62,14 +52,12 @@ impl StrVec {
         }
     }
 
-    #[no_panic]
     pub fn push(&mut self, item: &str) -> Key {
         self.indices.push(self.data.len() + item.len());
         self.data.extend_from_slice(item.as_bytes());
         Key(self.indices.len() - 2)
     }
 
-    #[no_panic]
     pub fn iter<'a>(&'a self) -> StrVecIter<'a> {
         StrVecIter {
             strvec: self,
@@ -77,7 +65,6 @@ impl StrVec {
         }
     }
 
-    #[no_panic]
     pub fn len(&self) -> usize {
         self.indices.len() - 1
     }
@@ -88,7 +75,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn get() {
+    fn creation_assumptions() {
+        let words = StrVec::new();
+        assert_eq!(words.indices.len(), 1);
+        assert_eq!(words.indices.get(0), Some(&0));
+
+        let iter = words.iter();
+        assert_eq!(iter.index, 0);
+    }
+
+    #[test]
+    fn push_get() {
         let mut words = StrVec::new();
         assert_eq!(words.len(), 0);
         let first = words.push("a");

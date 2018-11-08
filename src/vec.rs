@@ -2,7 +2,7 @@ use core::mem;
 use core::mem::{align_of, size_of};
 use core::slice::SliceIndex;
 use core::{ptr, slice};
-use std::alloc::{alloc, handle_alloc_error, realloc, Layout};
+use std::alloc::{alloc, dealloc, handle_alloc_error, realloc, Layout};
 
 #[derive(Debug)]
 pub struct ChillVec<T> {
@@ -12,7 +12,6 @@ pub struct ChillVec<T> {
 }
 
 impl<T> ChillVec<T> {
-    #[no_panic]
     pub fn new() -> Self {
         Self {
             data: ptr::NonNull::dangling().as_ptr(),
@@ -21,8 +20,14 @@ impl<T> ChillVec<T> {
         }
     }
 
-    #[no_panic]
     pub fn with_capacity(cap: usize) -> Self {
+        // Attempting to allocate zero size is UB
+        // Calling with_capacity(0) is probably a programming error but we're not about
+        // failure here. Instead, we do the most unsurprising thing possible.
+        if cap == 0 {
+            return Self::new();
+        }
+
         let data = unsafe {
             let layout = Layout::from_size_align_unchecked(cap * size_of::<T>(), align_of::<T>());
             let data = alloc(layout);
@@ -34,21 +39,18 @@ impl<T> ChillVec<T> {
         Self {
             data,
             length: 0,
-            capacity: 0,
+            capacity: cap,
         }
     }
 
-    #[no_panic]
     pub fn len(&self) -> usize {
         self.length
     }
 
-    #[no_panic]
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
-    #[no_panic]
     pub fn reserve(&mut self, new_capacity: usize) {
         if new_capacity <= self.capacity {
             return;
@@ -85,7 +87,6 @@ impl<T> ChillVec<T> {
         }
     }
 
-    #[no_panic]
     pub fn push(&mut self, item: T) {
         if self.capacity == 0 {
             self.reserve(4);
@@ -99,7 +100,6 @@ impl<T> ChillVec<T> {
         self.length += 1;
     }
 
-    #[no_panic]
     pub unsafe fn get_unchecked<I>(&self, index: I) -> &<I as SliceIndex<[T]>>::Output
     where
         I: SliceIndex<[T]>,
@@ -107,12 +107,10 @@ impl<T> ChillVec<T> {
         self.as_slice().get_unchecked(index)
     }
 
-    #[no_panic]
     pub unsafe fn get_unchecked_mut(&self, index: usize) -> &mut T {
         mem::transmute(self.data.offset(index as isize))
     }
 
-    #[no_panic]
     pub fn get<I>(&self, index: I) -> Option<&<I as SliceIndex<[T]>>::Output>
     where
         I: SliceIndex<[T]>,
@@ -120,7 +118,6 @@ impl<T> ChillVec<T> {
         self.as_slice().get(index)
     }
 
-    #[no_panic]
     pub fn get_mut(&self, index: usize) -> Option<&mut T> {
         if index >= self.length {
             None
@@ -129,29 +126,24 @@ impl<T> ChillVec<T> {
         }
     }
 
-    #[no_panic]
     pub fn as_slice(&self) -> &[T] {
         unsafe { slice::from_raw_parts(self.data, self.length) }
     }
 
-    #[no_panic]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         unsafe { slice::from_raw_parts_mut(self.data, self.length) }
     }
 
-    #[no_panic]
     pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
         self.as_slice().iter()
     }
 
-    #[no_panic]
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> + '_ {
         self.as_mut_slice().iter_mut()
     }
 }
 
 impl<T: Copy> ChillVec<T> {
-    #[no_panic]
     pub fn extend_from_slice(&mut self, items: &[T]) {
         use core::cmp::max;
         let new_len = self.len() + items.len();
@@ -167,6 +159,23 @@ impl<T: Copy> ChillVec<T> {
             );
         }
         self.length = new_len;
+    }
+}
+
+impl<T> Drop for ChillVec<T> {
+    fn drop(&mut self) {
+        // If capacity is 0 no allocation was done and the pointer is dangling
+        if self.capacity > 0 {
+            unsafe {
+                dealloc(
+                    self.data as *mut u8,
+                    Layout::from_size_align_unchecked(
+                        size_of::<T>() * self.capacity,
+                        align_of::<T>(),
+                    ),
+                );
+            }
+        }
     }
 }
 
