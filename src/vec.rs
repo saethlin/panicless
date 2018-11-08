@@ -22,8 +22,30 @@ impl<T> ChillVec<T> {
     }
 
     #[no_panic]
+    pub fn with_capacity(cap: usize) -> Self {
+        let data = unsafe {
+            let layout = Layout::from_size_align_unchecked(cap * size_of::<T>(), align_of::<T>());
+            let data = alloc(layout);
+            if data.is_null() {
+                handle_alloc_error(layout);
+            }
+            data as *mut T
+        };
+        Self {
+            data,
+            length: 0,
+            capacity: 0,
+        }
+    }
+
+    #[no_panic]
     pub fn len(&self) -> usize {
         self.length
+    }
+
+    #[no_panic]
+    pub fn capacity(&self) -> usize {
+        self.capacity
     }
 
     #[no_panic]
@@ -68,7 +90,7 @@ impl<T> ChillVec<T> {
         if self.capacity == 0 {
             self.reserve(4);
         } else if self.length == self.capacity {
-            let new_capacity = 2 * self.capacity;
+            let new_capacity = self.capacity + self.capacity / 2;
             self.reserve(new_capacity)
         }
         unsafe {
@@ -78,8 +100,11 @@ impl<T> ChillVec<T> {
     }
 
     #[no_panic]
-    pub unsafe fn get_unchecked(&self, index: usize) -> &T {
-        mem::transmute(self.data.offset(index as isize))
+    pub unsafe fn get_unchecked<I>(&self, index: I) -> &<I as SliceIndex<[T]>>::Output
+    where
+        I: SliceIndex<[T]>,
+    {
+        self.as_slice().get_unchecked(index)
     }
 
     #[no_panic]
@@ -87,6 +112,7 @@ impl<T> ChillVec<T> {
         mem::transmute(self.data.offset(index as isize))
     }
 
+    #[no_panic]
     pub fn get<I>(&self, index: I) -> Option<&<I as SliceIndex<[T]>>::Output>
     where
         I: SliceIndex<[T]>,
@@ -109,7 +135,7 @@ impl<T> ChillVec<T> {
     }
 
     #[no_panic]
-    pub fn as_slice_mut(&mut self) -> &mut [T] {
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
         unsafe { slice::from_raw_parts_mut(self.data, self.length) }
     }
 
@@ -120,24 +146,19 @@ impl<T> ChillVec<T> {
 
     #[no_panic]
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> + '_ {
-        self.as_slice_mut().iter_mut()
-    }
-
-    #[no_panic]
-    pub fn sort_by_key<K, F>(&mut self, key: F)
-    where
-        F: FnMut(&T) -> K,
-        K: Ord,
-    {
-        self.as_slice_mut().sort_by_key(key);
+        self.as_mut_slice().iter_mut()
     }
 }
 
 impl<T: Copy> ChillVec<T> {
     #[no_panic]
     pub fn extend_from_slice(&mut self, items: &[T]) {
-        let len = self.len();
-        self.reserve(len + items.len());
+        use core::cmp::max;
+        let new_len = self.len() + items.len();
+        if new_len > self.capacity() {
+            let new_capacity = max(self.capacity() + self.capacity() / 2, new_len);
+            self.reserve(new_capacity)
+        }
         unsafe {
             ptr::copy_nonoverlapping(
                 items.as_ptr(),
@@ -145,7 +166,7 @@ impl<T: Copy> ChillVec<T> {
                 items.len(),
             );
         }
-        self.length += items.len();
+        self.length = new_len;
     }
 }
 
@@ -163,19 +184,19 @@ mod tests {
     #[test]
     fn test_reserve() {
         let mut v = ChillVec::new();
-        assert_eq!(v.capacity, 0);
+        assert_eq!(v.capacity(), 0);
 
         v.reserve(2);
-        assert!(v.capacity >= 2);
+        assert!(v.capacity() >= 2);
 
         for i in 0..16 {
             v.push(i);
         }
 
-        assert!(v.capacity >= 16);
+        assert!(v.capacity() >= 16);
 
         v.push(16);
 
-        assert!(v.capacity >= 17)
+        assert!(v.capacity() >= 17)
     }
 }
