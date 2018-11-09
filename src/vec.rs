@@ -1,4 +1,3 @@
-use core::mem;
 use core::mem::{align_of, size_of};
 use core::slice::SliceIndex;
 use core::{ptr, slice};
@@ -13,6 +12,7 @@ pub struct ChillVec<T> {
 
 impl<T> ChillVec<T> {
     pub fn new() -> Self {
+        assert!(size_of::<T>() > 0);
         Self {
             data: ptr::NonNull::dangling().as_ptr(),
             length: 0,
@@ -21,9 +21,11 @@ impl<T> ChillVec<T> {
     }
 
     pub fn with_capacity(cap: usize) -> Self {
-        // Attempting to allocate zero size is UB
         // Calling with_capacity(0) is probably a programming error but we're not about
         // failure here. Instead, we do the most unsurprising thing possible.
+
+        assert!(size_of::<T>() > 0);
+
         if cap == 0 {
             return Self::new();
         }
@@ -107,8 +109,11 @@ impl<T> ChillVec<T> {
         self.as_slice().get_unchecked(index)
     }
 
-    pub unsafe fn get_unchecked_mut(&self, index: usize) -> &mut T {
-        mem::transmute(self.data.offset(index as isize))
+    pub unsafe fn get_unchecked_mut<I>(&mut self, index: I) -> &mut <I as SliceIndex<[T]>>::Output
+    where
+        I: SliceIndex<[T]>,
+    {
+        self.as_mut_slice().get_unchecked_mut(index)
     }
 
     pub fn get<I>(&self, index: I) -> Option<&<I as SliceIndex<[T]>>::Output>
@@ -118,7 +123,7 @@ impl<T> ChillVec<T> {
         self.as_slice().get(index)
     }
 
-    pub fn get_mut(&self, index: usize) -> Option<&mut T> {
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         if index >= self.length {
             None
         } else {
