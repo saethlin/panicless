@@ -14,7 +14,7 @@ impl<'a> Iterator for StrVecIter<'a> {
     type Item = &'a str;
     fn next(&mut self) -> Option<Self::Item> {
         let out = if self.index < self.len() {
-            Some(self.strvec.get(Key(self.index)))
+            self.strvec.get(self.index)
         } else {
             None
         };
@@ -29,8 +29,11 @@ impl<'a> ExactSizeIterator for StrVecIter<'a> {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct Key(usize);
+impl Default for StrVec {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl StrVec {
     pub fn new() -> Self {
@@ -42,23 +45,24 @@ impl StrVec {
         }
     }
 
-    pub fn get(&self, key: Key) -> &str {
-        let index = key.0;
-        unsafe {
-            let begin = *self.indices.get_unchecked(index);
-            let end = *self.indices.get_unchecked(index + 1);
-            let bytes = self.data.get_unchecked(begin..end);
-            core::str::from_utf8_unchecked(bytes)
-        }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
-    pub fn push(&mut self, item: &str) -> Key {
+    pub fn get(&self, index: usize) -> Option<&str> {
+        let begin = *self.indices.get(index)?;
+        let end = *self.indices.get(index + 1)?;
+        self.data
+            .get(begin..end)
+            .map(|b| unsafe { std::str::from_utf8_unchecked(b) })
+    }
+
+    pub fn push(&mut self, item: &str) {
         self.indices.push(self.data.len() + item.len());
         self.data.extend_from_slice(item.as_bytes());
-        Key(self.indices.len() - 2)
     }
 
-    pub fn iter<'a>(&'a self) -> StrVecIter<'a> {
+    pub fn iter(&self) -> StrVecIter {
         StrVecIter {
             strvec: self,
             index: 0,
@@ -88,16 +92,17 @@ mod tests {
     fn push_get() {
         let mut words = StrVec::new();
         assert_eq!(words.len(), 0);
-        let first = words.push("a");
+        words.push("a");
         assert_eq!(words.len(), 1);
-        let second = words.push("ab");
+        words.push("ab");
         assert_eq!(words.len(), 2);
-        let third = words.push("abc");
+        words.push("abc");
         assert_eq!(words.len(), 3);
 
-        assert_eq!(words.get(first), "a");
-        assert_eq!(words.get(second), "ab");
-        assert_eq!(words.get(third), "abc");
+        assert_eq!(words.get(0), Some("a"));
+        assert_eq!(words.get(1), Some("ab"));
+        assert_eq!(words.get(2), Some("abc"));
+        assert_eq!(words.get(3), None);
     }
 
     #[test]
@@ -110,5 +115,6 @@ mod tests {
         assert_eq!(iter.next(), Some("a"));
         assert_eq!(iter.next(), Some("ab"));
         assert_eq!(iter.next(), Some("abc"));
+        assert_eq!(iter.next(), None);
     }
 }

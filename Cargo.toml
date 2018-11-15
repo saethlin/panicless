@@ -2,6 +2,3 @@
 name = "panicless"
 version = "0.1.0"
 authors = ["Ben Kimock <kimockb@gmail.com>"]
-
-[profile.test]
-opt-level = 3

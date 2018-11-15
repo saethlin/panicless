@@ -16,6 +16,10 @@ impl<T> CursorVec<T> {
         Self { index: 0, vec }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn get(&self) -> &T {
         unsafe { self.vec.get_unchecked(self.index) }
     }

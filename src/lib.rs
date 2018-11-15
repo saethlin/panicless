@@ -1,5 +1,8 @@
-extern crate core;
+mod cursor_vec;
+pub use cursor_vec::CursorVec;
 
-pub mod cursor_vec;
-pub mod str_vec;
-pub mod vec;
+mod str_vec;
+pub use str_vec::StrVec;
+
+mod vec;
+pub use vec::ChillVec;
