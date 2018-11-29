@@ -1,5 +1,8 @@
 use vec::ChillVec as Vec;
 
+// One might expect this to be backed by a String, but to do so would not make this code panicless
+// String is backed by a RawVec, which can panic when it expands its allocation if the allocation
+// size would overflow an isize
 pub struct StrVec {
     data: Vec<u8>,
     indices: Vec<usize>,

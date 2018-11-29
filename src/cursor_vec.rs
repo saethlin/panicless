@@ -73,6 +73,6 @@ impl<T> CursorVec<T> {
         F: FnMut(&T) -> K,
         K: Ord,
     {
-        self.vec.as_mut_slice().sort_by_key(f);
+        self.vec.sort_by_key(f);
     }
 }

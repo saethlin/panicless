@@ -1,6 +1,5 @@
 use std::alloc::{alloc, dealloc, handle_alloc_error, realloc, Layout};
 use std::mem::{align_of, size_of};
-use std::slice::SliceIndex;
 use std::{ptr, slice};
 
 #[derive(Debug)]
@@ -91,16 +90,6 @@ impl<T> ChillVec<T> {
     }
 
     #[inline]
-    pub fn len(&self) -> usize {
-        self.length
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    #[inline]
     pub fn capacity(&self) -> usize {
         self.capacity
     }
@@ -169,58 +158,6 @@ impl<T> ChillVec<T> {
         }
         self.length += 1;
     }
-
-    #[inline]
-    pub unsafe fn get_unchecked<I>(&self, index: I) -> &<I as SliceIndex<[T]>>::Output
-    where
-        I: SliceIndex<[T]>,
-    {
-        self.as_slice().get_unchecked(index)
-    }
-
-    #[inline]
-    pub unsafe fn get_unchecked_mut<I>(&mut self, index: I) -> &mut <I as SliceIndex<[T]>>::Output
-    where
-        I: SliceIndex<[T]>,
-    {
-        self.as_mut_slice().get_unchecked_mut(index)
-    }
-
-    #[inline]
-    pub fn get<I>(&self, index: I) -> Option<&<I as SliceIndex<[T]>>::Output>
-    where
-        I: SliceIndex<[T]>,
-    {
-        self.as_slice().get(index)
-    }
-
-    #[inline]
-    pub fn get_mut<I>(&mut self, index: I) -> Option<&mut <I as SliceIndex<[T]>>::Output>
-    where
-        I: SliceIndex<[T]>,
-    {
-        self.as_mut_slice().get_mut(index)
-    }
-
-    #[inline]
-    pub fn as_slice(&self) -> &[T] {
-        unsafe { slice::from_raw_parts(self.data, self.length) }
-    }
-
-    #[inline]
-    pub fn as_mut_slice(&mut self) -> &mut [T] {
-        unsafe { slice::from_raw_parts_mut(self.data, self.length) }
-    }
-
-    #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
-        self.as_slice().iter()
-    }
-
-    #[inline]
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> + '_ {
-        self.as_mut_slice().iter_mut()
-    }
 }
 
 impl<T: Copy> ChillVec<T> {
@@ -257,21 +194,92 @@ impl<T> Drop for ChillVec<T> {
     }
 }
 
+impl<T> std::ops::Deref for ChillVec<T> {
+    type Target = [T];
+
+    #[inline]
+    fn deref(&self) -> &[T] {
+        unsafe { slice::from_raw_parts(self.data as *const T, self.length) }
+    }
+}
+
+impl<T> std::ops::DerefMut for ChillVec<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut [T] {
+        unsafe { slice::from_raw_parts_mut(self.data, self.length) }
+    }
+}
+
+impl<'a, T> IntoIterator for &'a ChillVec<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> std::slice::Iter<'a, T> {
+        self.iter()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a mut ChillVec<T> {
+    type Item = &'a mut T;
+    type IntoIter = std::slice::IterMut<'a, T>;
+
+    fn into_iter(self) -> std::slice::IterMut<'a, T> {
+        self.iter_mut()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_push() {
+    fn push() {
         let mut vec = ChillVec::new();
+        assert_eq!(vec.len(), 0);
+
         vec.push(1337);
+        assert_eq!(vec.len(), 1);
         assert_eq!(vec.get(0), Some(&1337));
+
         vec.push(1);
+        assert_eq!(vec.len(), 2);
         assert_eq!(vec.get(1), Some(&1));
     }
 
     #[test]
-    fn test_reserve() {
+    fn index_range() {
+        let mut vec = ChillVec::new();
+        vec.push(1);
+        vec.push(2);
+        vec.push(3);
+        vec.push(4);
+
+        assert_eq!(vec[..1], [1]);
+        assert_eq!(vec[..2], [1, 2]);
+        assert_eq!(vec[2..4], [3, 4]);
+    }
+
+    #[test]
+    fn iterate() {
+        let mut vec = ChillVec::new();
+        vec.extend_from_slice(&[1, 2, 3, 4]);
+        let mut it = vec.iter();
+        assert_eq!(it.next(), Some(&1));
+        assert_eq!(it.next(), Some(&2));
+        assert_eq!(it.next(), Some(&3));
+        assert_eq!(it.next(), Some(&4));
+        assert_eq!(it.next(), None);
+        assert_eq!(it.next(), None);
+
+        for it in &vec {
+            assert!(*it > 0 && *it < 5);
+        }
+
+        assert_eq!(vec.iter().count(), 4);
+    }
+
+    #[test]
+    fn reserve() {
         let mut v = ChillVec::new();
         assert_eq!(v.capacity(), 0);
 
