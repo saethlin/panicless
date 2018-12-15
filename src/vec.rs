@@ -1,40 +1,95 @@
 use std::alloc::{alloc, dealloc, handle_alloc_error, realloc, Layout};
 use std::mem::{align_of, size_of};
+use std::num::NonZeroUsize;
+use std::ptr::NonNull;
 use std::{ptr, slice};
+
+#[inline]
+fn alloc_or_abort<T>(n_elements: NonZeroUsize) -> NonNull<T> {
+    unsafe {
+        let layout =
+            Layout::from_size_align_unchecked(n_elements.get() * size_of::<T>(), align_of::<T>());
+
+        // Rust specifies that pointers cannot be offset by more than isize::MAX in bytes
+        // so we abort on attempts to allocate more than that amount of memory, because
+        // to do otherwise requires a bounds-check on every element access and produces
+        // unreachable data.
+        // If we omit this check there would be possible UB when accessing an
+        // element, and could actually happen today on a 32-bit platform
+        if layout.size() > isize::max_value() as usize {
+            handle_alloc_error(layout);
+        }
+
+        NonNull::new(alloc(layout) as *mut T).unwrap_or_else(|| handle_alloc_error(layout))
+    }
+}
+
+#[inline]
+fn realloc_or_abort<T>(
+    ptr: NonNull<T>,
+    previous_size: NonZeroUsize,
+    new_size: NonZeroUsize,
+) -> NonNull<T> {
+    unsafe {
+        let old_layout = Layout::from_size_align_unchecked(
+            previous_size.get() * size_of::<T>(),
+            align_of::<T>(),
+        );
+
+        if old_layout.size() > isize::max_value() as usize {
+            handle_alloc_error(old_layout);
+        }
+
+        NonNull::new(realloc(
+            ptr.cast().as_ptr(),
+            old_layout,
+            new_size.get() * size_of::<T>(),
+        ) as *mut T)
+        .unwrap_or_else(|| {
+            handle_alloc_error(Layout::from_size_align_unchecked(
+                new_size.get(),
+                align_of::<T>(),
+            ))
+        })
+    }
+}
 
 #[derive(Debug)]
 pub struct ChillVec<T> {
-    data: *mut T,
+    data: NonNull<T>,
     length: usize,
     capacity: usize,
-}
-
-// Rust specifies that pointers cannot be offset by more than isize::MAX in bytes
-// so we abort on attempts to allocate more than that amount of memory, because
-// to do otherwise requires a bounds-check on every element access and produces
-// unreachable data.
-// If we omit this check there would be possible UB when accessing an
-// element, and could actually happen today on a 32-bit platform
-#[inline]
-fn abort_if_alloc_too_large<T>(capacity: usize) {
-    if capacity
-        .saturating_mul(size_of::<T>())
-        .saturating_add(align_of::<T>())
-        > isize::max_value() as usize
-    {
-        unsafe {
-            handle_alloc_error(Layout::from_size_align_unchecked(
-                capacity * size_of::<T>(),
-                align_of::<T>(),
-            ));
-        }
-    }
 }
 
 impl<T> Default for ChillVec<T> {
     #[inline]
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<T> Clone for ChillVec<T>
+where
+    T: Clone,
+{
+    #[inline]
+    fn clone(&self) -> Self {
+        // This is not an optimization, it's required
+        // The layout provided to alloc must have non-zero size
+        let data = match NonZeroUsize::new(self.length) {
+            Some(n) => alloc_or_abort(n),
+            None => return Self::new(),
+        };
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(self.data.as_ptr(), data.as_ptr(), self.length);
+        };
+
+        Self {
+            length: self.length,
+            capacity: self.length,
+            data,
+        }
     }
 }
 
@@ -48,7 +103,7 @@ impl<T> ChillVec<T> {
     pub fn new() -> Self {
         assert!(size_of::<T>() > 0);
         Self {
-            data: ptr::NonNull::dangling().as_ptr(),
+            data: NonNull::dangling(),
             length: 0,
             capacity: 0,
         }
@@ -62,24 +117,11 @@ impl<T> ChillVec<T> {
     /// ```
     #[inline]
     pub fn with_capacity(cap: usize) -> Self {
-        // Calling with_capacity(0) is probably a programming error but we're not about
-        // failure here. Instead, we do the most unsurprising thing possible.
-
         assert!(size_of::<T>() > 0);
 
-        if cap == 0 {
-            return Self::new();
-        }
-
-        abort_if_alloc_too_large::<T>(cap);
-
-        let data = unsafe {
-            let layout = Layout::from_size_align_unchecked(cap * size_of::<T>(), align_of::<T>());
-            let data = alloc(layout);
-            if data.is_null() {
-                handle_alloc_error(layout);
-            }
-            data as *mut T
+        let data = match NonZeroUsize::new(cap) {
+            Some(n) => alloc_or_abort(n),
+            None => return Self::new(),
         };
 
         Self {
@@ -110,40 +152,18 @@ impl<T> ChillVec<T> {
             return;
         }
 
-        abort_if_alloc_too_large::<T>(new_capacity);
+        let new_capacity = match NonZeroUsize::new(new_capacity) {
+            Some(n) => n,
+            None => return,
+        };
 
-        unsafe {
-            // Special case for the first allocation
-            if self.capacity == 0 {
-                let layout = Layout::from_size_align_unchecked(
-                    new_capacity * size_of::<T>(),
-                    align_of::<T>(),
-                );
+        self.data = match NonZeroUsize::new(self.capacity) {
+            None => alloc_or_abort(new_capacity),
+            Some(old_capacity) => realloc_or_abort(self.data, old_capacity, new_capacity),
+        };
 
-                let new_alloc = alloc(layout);
-                if !new_alloc.is_null() {
-                    self.data = new_alloc as *mut T;
-                    self.capacity = new_capacity;
-                } else {
-                    handle_alloc_error(layout);
-                }
-            } else {
-                // Grow by reallocating
-                let layout = Layout::from_size_align_unchecked(
-                    size_of::<T>() * self.capacity,
-                    align_of::<T>(),
-                );
-
-                let new_alloc =
-                    realloc(self.data as *mut u8, layout, new_capacity * size_of::<T>());
-                if !new_alloc.is_null() {
-                    self.data = new_alloc as *mut T;
-                    self.capacity = new_capacity;
-                } else {
-                    handle_alloc_error(layout);
-                }
-            }
-        }
+        // In either case, we have succeeded
+        self.capacity = new_capacity.get();
     }
 
     #[inline]
@@ -154,24 +174,48 @@ impl<T> ChillVec<T> {
         }
 
         unsafe {
-            ptr::write(self.data.add(self.length), item);
+            ptr::write(self.data.as_ptr().add(self.length), item);
         }
         self.length += 1;
+    }
+
+    // TODO This is possibly wrong, RawVec has a bajillion checks
+    pub fn shrink_to_fit(&mut self) {
+        if self.length > 0 && self.capacity > self.length {
+            unsafe {
+                let old_size = size_of::<T>() * self.capacity;
+                let new_size = size_of::<T>() * self.length;
+                let align = align_of::<T>();
+                let old_layout = Layout::from_size_align_unchecked(old_size, align);
+
+                self.data = NonNull::new(
+                    realloc(self.data.cast().as_ptr(), old_layout, new_size) as *mut T
+                )
+                .unwrap_or_else(|| {
+                    handle_alloc_error(Layout::from_size_align_unchecked(new_size, align))
+                });
+                self.capacity = self.length;
+            }
+        }
     }
 }
 
 impl<T: Copy> ChillVec<T> {
     #[inline]
     pub fn extend_from_slice(&mut self, items: &[T]) {
-        use std::cmp::max;
-        let new_len = self.len() + items.len();
+        let new_len = self.length + items.len();
         if new_len > self.capacity() {
-            let new_capacity = max(self.capacity() + self.capacity() / 2 + 1, new_len);
-            self.reserve(new_capacity)
+            self.reserve(new_len + 1);
         }
+
         unsafe {
-            ptr::copy_nonoverlapping(items.as_ptr(), self.data.add(self.len()), items.len());
+            ptr::copy_nonoverlapping(
+                items.as_ptr(),
+                self.data.as_ptr().add(self.length),
+                items.len(),
+            );
         }
+
         self.length = new_len;
     }
 }
@@ -183,7 +227,7 @@ impl<T> Drop for ChillVec<T> {
         if self.capacity > 0 {
             unsafe {
                 dealloc(
-                    self.data as *mut u8,
+                    self.data.cast().as_ptr(),
                     Layout::from_size_align_unchecked(
                         size_of::<T>() * self.capacity,
                         align_of::<T>(),
@@ -199,14 +243,14 @@ impl<T> std::ops::Deref for ChillVec<T> {
 
     #[inline]
     fn deref(&self) -> &[T] {
-        unsafe { slice::from_raw_parts(self.data as *const T, self.length) }
+        unsafe { slice::from_raw_parts(self.data.as_ptr(), self.length) }
     }
 }
 
 impl<T> std::ops::DerefMut for ChillVec<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
-        unsafe { slice::from_raw_parts_mut(self.data, self.length) }
+        unsafe { slice::from_raw_parts_mut(self.data.as_ptr(), self.length) }
     }
 }
 
@@ -231,6 +275,7 @@ impl<'a, T> IntoIterator for &'a mut ChillVec<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test::Bencher;
 
     #[test]
     fn push() {

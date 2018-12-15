@@ -75,6 +75,11 @@ impl StrVec {
     pub fn len(&self) -> usize {
         self.indices.len() - 1
     }
+
+    pub fn shrink_to_fit(&mut self) {
+        self.indices.shrink_to_fit();
+        self.data.shrink_to_fit();
+    }
 }
 
 #[cfg(test)]
