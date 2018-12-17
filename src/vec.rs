@@ -95,7 +95,8 @@ where
 
 impl<T> ChillVec<T> {
     /// ```
-    /// let vec = panicless::ChillVec::<usize>::new();
+    /// # use panicless::ChillVec;
+    /// let vec = ChillVec::<usize>::new();
     /// assert!(vec.len() == 0);
     /// assert!(vec.capacity() == 0);
     /// ```
@@ -110,7 +111,8 @@ impl<T> ChillVec<T> {
     }
 
     /// ```
-    /// let vec = panicless::ChillVec::<usize>::with_capacity(20);
+    /// # use panicless::ChillVec;
+    /// let vec = ChillVec::<usize>::with_capacity(20);
     /// assert!(vec.len() == 0);
     /// // Space for more than 20 elements may be allocated if there is no additional cost
     /// assert!(vec.capacity() >= 20);
@@ -137,10 +139,11 @@ impl<T> ChillVec<T> {
     }
 
     /// ```
-    /// let mut vec = panicless::ChillVec::<usize>::new();
+    /// # use panicless::ChillVec;
+    /// let mut vec = ChillVec::<usize>::new();
     /// assert!(vec.capacity() == 0);
     /// vec.reserve(20);
-    /// // Space for more than 20 elements may be allocated if there is no additional cost
+    /// // Space for more than 20 elements may be allocated
     /// assert!(vec.capacity() >= 20);
     /// ```
     #[inline]
@@ -166,6 +169,16 @@ impl<T> ChillVec<T> {
         self.capacity = new_capacity.get();
     }
 
+    /// ```
+    /// # use panicless::ChillVec;
+    /// let mut vec = ChillVec::new();
+    /// vec.push(0);
+    /// vec.push(1);
+    /// vec.push(2);
+    /// assert_eq!(vec[0], 0);
+    /// assert_eq!(vec[1], 1);
+    /// assert_eq!(vec[2], 2);
+    /// ```
     #[inline]
     pub fn push(&mut self, item: T) {
         if self.length == self.capacity {
@@ -275,7 +288,6 @@ impl<'a, T> IntoIterator for &'a mut ChillVec<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test::Bencher;
 
     #[test]
     fn push() {
