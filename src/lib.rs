@@ -6,3 +6,5 @@ pub use str_vec::StrVec;
 
 mod vec;
 pub use vec::ChillVec;
+
+mod flat;

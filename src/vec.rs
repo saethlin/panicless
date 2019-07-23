@@ -74,8 +74,8 @@ where
 {
     #[inline]
     fn clone(&self) -> Self {
-        // This is not an optimization, it's required
-        // The layout provided to alloc must have non-zero size
+        // This is not an optimization, it's required because
+        // the layout provided to alloc must have non-zero size
         let data = match NonZeroUsize::new(self.length) {
             Some(n) => alloc_or_abort(n),
             None => return Self::new(),
